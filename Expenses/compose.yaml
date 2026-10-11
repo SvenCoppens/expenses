@@ -1,0 +1,7 @@
+﻿services:
+  expenses:
+    image: expenses
+    build:
+      context: .
+      dockerfile: Expenses/Dockerfile
+
