@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "dotnet build*": "allow",
+      "dotnet test*": "allow"
+    },
+    "external_directory": {
+      "*": "deny"
+    }
+  }
+}
