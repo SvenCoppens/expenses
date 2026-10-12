@@ -57,7 +57,7 @@ else
                         {
                             <span class="@parent.Icon" aria-hidden="true"></span>
                         }
-                        <h5 class="mb-0">@((MarkupString)parent.Name)</h5>
+                        <h5 class="mb-0">@parent.Name</h5>
                         <span class="badge bg-secondary">Order: @parent.DisplayOrder</span>
                     </div>
                     <div class="btn-group btn-group-sm">
@@ -84,7 +84,7 @@ else
                             {
                                 <div class="badge-item d-flex align-items-center gap-1 border rounded px-2 py-1 bg-white">
                                     <span class="color-badge rounded-circle d-inline-block small" style="width: 12px; height: 12px; background-color: @(sub.ColorCode ?? parent.ColorCode ?? "#6c757d");"></span>
-                                    <span>@((MarkupString)sub.Name)</span>
+                                    <span>@sub.Name</span>
                                     <button type="button" class="btn btn-link btn-xs text-primary p-0 ms-1" title="Edit" @onclick="() => OpenEditModal(sub, parent.Name)">✎</button>
                                     <button type="button" class="btn btn-link btn-xs text-danger p-0 ms-1" title="Delete" @onclick="() => ConfirmDelete(sub.Id, sub.Name)">✕</button>
                                 </div>

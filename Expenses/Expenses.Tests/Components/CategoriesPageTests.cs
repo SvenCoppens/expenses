@@ -76,13 +76,15 @@ public sealed class CategoriesPageTests : BunitTestContext
         var cut = RenderComponent<Categories>();
 
         // Assert
+        var categoryTree = cut.Find(".category-tree");
+
         // Parent categories display names
-        cut.Markup.Should().Contain("Food & Dining");
-        cut.Markup.Should().Contain("Housing");
+        categoryTree.TextContent.Should().Contain("Food & Dining");
+        categoryTree.TextContent.Should().Contain("Housing");
 
         // Subcategory display names
-        cut.Markup.Should().Contain("Groceries");
-        cut.Markup.Should().Contain("Restaurants");
+        categoryTree.TextContent.Should().Contain("Groceries");
+        categoryTree.TextContent.Should().Contain("Restaurants");
 
         // Color swatches (rendered either in style attributes or badges)
         cut.Markup.Should().Contain("#059669");
@@ -91,11 +93,11 @@ public sealed class CategoriesPageTests : BunitTestContext
         cut.Markup.Should().Contain("#3B82F6");
 
         // Display order badges
-        cut.Markup.Should().Contain("Order: 1");
-        cut.Markup.Should().Contain("Order: 2");
+        categoryTree.TextContent.Should().Contain("Order: 1");
+        categoryTree.TextContent.Should().Contain("Order: 2");
 
         // Empty subcategories notice for parent2
-        cut.Markup.Should().ContainEquivalentOf("No subcategories defined");
+        categoryTree.TextContent.Should().ContainEquivalentOf("No subcategories defined");
     }
 
     [Fact]
@@ -232,8 +234,9 @@ public sealed class CategoriesPageTests : BunitTestContext
             .Returns(Result.Success());
 
         var cut = RenderComponent<Categories>();
-        cut.Markup.Should().Contain("Entertainment");
-        cut.Markup.Should().Contain("Health & Fitness");
+        var categoryTree = cut.Find(".category-tree");
+        categoryTree.TextContent.Should().Contain("Entertainment");
+        categoryTree.TextContent.Should().Contain("Health & Fitness");
 
         // Act
         // Find the delete button corresponding to the category to delete
@@ -255,7 +258,7 @@ public sealed class CategoriesPageTests : BunitTestContext
         categoryCards.Should().NotContain(card => card.TextContent.Contains("Entertainment"));
 
         // Remaining category should still appear
-        cut.Markup.Should().Contain("Health & Fitness");
+        cut.Find(".category-tree").TextContent.Should().Contain("Health & Fitness");
     }
 
     [Fact]

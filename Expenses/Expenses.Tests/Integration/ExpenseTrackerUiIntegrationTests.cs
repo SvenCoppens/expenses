@@ -256,9 +256,10 @@ public sealed class ExpenseTrackerUiIntegrationTests : TestContext, IClassFixtur
 
         // Assert
         cut.FindAll(".category-tree .card").Should().ContainSingle();
-        cut.Markup.Should().Contain("Housing & Living");
-        cut.Markup.Should().Contain("Rent & Mortgage");
-        cut.Markup.Should().Contain("Home Insurance");
+        var categoryTree = cut.Find(".category-tree");
+        categoryTree.TextContent.Should().Contain("Housing & Living");
+        categoryTree.TextContent.Should().Contain("Rent & Mortgage");
+        categoryTree.TextContent.Should().Contain("Home Insurance");
         cut.Markup.Should().Contain("#3B82F6");
         cut.Markup.Should().Contain("bi-house");
     }
@@ -279,7 +280,7 @@ public sealed class ExpenseTrackerUiIntegrationTests : TestContext, IClassFixtur
         cut.Find(".modal form").Submit();
 
         // Assert - UI reflects new category
-        cut.Markup.Should().Contain("Healthcare & Fitness");
+        cut.Find(".category-tree").TextContent.Should().Contain("Healthcare & Fitness");
 
         // Assert - Database persisted record
         await using var context = await _fixture.CreateContextAsync();
@@ -305,7 +306,7 @@ public sealed class ExpenseTrackerUiIntegrationTests : TestContext, IClassFixtur
         cut.Find(".modal form").Submit();
 
         // Assert - UI reflects subcategory
-        cut.Markup.Should().Contain("Supermarket");
+        cut.Find(".category-tree").TextContent.Should().Contain("Supermarket");
 
         // Assert - Database persisted subcategory linked to parent
         await using var context = await _fixture.CreateContextAsync();
@@ -565,8 +566,8 @@ public sealed class ExpenseTrackerUiIntegrationTests : TestContext, IClassFixtur
         // Act & Assert 1: Authenticated as Tenant A
         SetAuthenticatedUser(userA);
         var categoriesA = RenderComponent<Categories>();
-        categoriesA.Markup.Should().Contain("Tenant A Private Category");
-        categoriesA.Markup.Should().NotContain("Tenant B Private Category");
+        categoriesA.Find(".category-tree").TextContent.Should().Contain("Tenant A Private Category");
+        categoriesA.Find(".category-tree").TextContent.Should().NotContain("Tenant B Private Category");
 
         var transactionsA = RenderComponent<Transactions>();
         transactionsA.Markup.Should().Contain("Tenant A Private Expense");
@@ -575,8 +576,8 @@ public sealed class ExpenseTrackerUiIntegrationTests : TestContext, IClassFixtur
         // Act & Assert 2: Authenticated as Tenant B
         SetAuthenticatedUser(userB);
         var categoriesB = RenderComponent<Categories>();
-        categoriesB.Markup.Should().Contain("Tenant B Private Category");
-        categoriesB.Markup.Should().NotContain("Tenant A Private Category");
+        categoriesB.Find(".category-tree").TextContent.Should().Contain("Tenant B Private Category");
+        categoriesB.Find(".category-tree").TextContent.Should().NotContain("Tenant A Private Category");
 
         var transactionsB = RenderComponent<Transactions>();
         transactionsB.Markup.Should().Contain("Tenant B Private Expense");

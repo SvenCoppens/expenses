@@ -251,7 +251,7 @@ else
                             <td>
                                 <div class="d-flex gap-1">
                                     <button type="button" class="btn btn-sm btn-outline-primary" title="Edit" @onclick="() => StartRowEdit(transaction)">Edit</button>
-                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete" @onclick="() => DeleteSingleTransactionAsync(transaction.Id)">Delete</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete" @onclick="() => PromptSingleDelete(transaction)">Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -263,6 +263,7 @@ else
 }
 
 <AddTransactionModal @ref="_addModal" Categories="_categories" OnTransactionCreated="HandleTransactionCreatedAsync" />
+<ConfirmDialog @ref="_confirmSingleDialog" OnConfirmed="HandleSingleDeleteConfirmedAsync" OnCancel="HandleSingleDeleteCanceled" />
 <ConfirmDialog @ref="_confirmBulkDialog" OnConfirmed="HandleBulkDeleteConfirmedAsync" />
 
 @code {
@@ -281,7 +282,9 @@ else
     private TransactionRowEditModel? _editRow;
 
     private AddTransactionModal? _addModal;
+    private ConfirmDialog? _confirmSingleDialog;
     private ConfirmDialog? _confirmBulkDialog;
+    private Guid? _singleTransactionToDeleteId;
 
     private decimal _totalIncome;
     private decimal _totalExpenses;
@@ -455,6 +458,33 @@ else
         {
             _errorMessage = result.ErrorMessage ?? "Failed to save transaction.";
         }
+    }
+
+    private void PromptSingleDelete(TransactionDto transaction)
+    {
+        _singleTransactionToDeleteId = transaction.Id;
+        _confirmSingleDialog?.Show(
+            "Confirm Delete",
+            $"Are you sure you want to delete '{transaction.Description}' ({FormatCurrency(transaction.Amount, transaction.Type)})?",
+            "Delete"
+        );
+    }
+
+    private void HandleSingleDeleteCanceled()
+    {
+        _singleTransactionToDeleteId = null;
+    }
+
+    private async Task HandleSingleDeleteConfirmedAsync()
+    {
+        if (!_singleTransactionToDeleteId.HasValue)
+        {
+            return;
+        }
+
+        var id = _singleTransactionToDeleteId.Value;
+        _singleTransactionToDeleteId = null;
+        await DeleteSingleTransactionAsync(id);
     }
 
     private async Task DeleteSingleTransactionAsync(Guid id)
