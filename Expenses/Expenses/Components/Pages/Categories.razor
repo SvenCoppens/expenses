@@ -1,0 +1,326 @@
+@page "/categories"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Expenses.Common
+@using Expenses.Components.Shared
+@using Expenses.Models.DTOs
+@using Expenses.Models.ViewModels
+@using Expenses.Services.Categories
+
+@inject ICategoryService CategoryService
+
+<PageTitle>Categories - Expenses</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Categories</h2>
+    <button type="button" class="btn btn-primary" @onclick="OpenAddParentModal">
+        <span class="bi bi-plus-lg"></span> Add Parent Category
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <span>@_errorMessage</span>
+        <button type="button" class="btn-close" aria-label="Close" @onclick="DismissError"></button>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <div class="d-flex justify-content-center my-4">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading categories...</span>
+        </div>
+    </div>
+}
+else if (_categories.Count == 0)
+{
+    <div class="alert alert-info" role="status">
+        No categories found. Click "Add Parent Category" to get started.
+    </div>
+}
+else
+{
+    <div class="category-tree">
+        @foreach (var parent in _categories)
+        {
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="color-badge rounded-circle d-inline-block" style="width: 16px; height: 16px; background-color: @(parent.ColorCode ?? "#6c757d");"></span>
+                        @if (!string.IsNullOrEmpty(parent.Icon))
+                        {
+                            <span class="@parent.Icon" aria-hidden="true"></span>
+                        }
+                        <h5 class="mb-0">@((MarkupString)parent.Name)</h5>
+                        <span class="badge bg-secondary">Order: @parent.DisplayOrder</span>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-success" @onclick="() => OpenAddSubcategoryModal(parent)">
+                            + Add Subcategory
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" @onclick="() => OpenEditModal(parent)">
+                            Edit
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" @onclick="() => ConfirmDelete(parent.Id, parent.Name)">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (parent.Subcategories == null || parent.Subcategories.Count == 0)
+                    {
+                        <p class="text-muted mb-0 small">No subcategories defined.</p>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var sub in parent.Subcategories)
+                            {
+                                <div class="badge-item d-flex align-items-center gap-1 border rounded px-2 py-1 bg-white">
+                                    <span class="color-badge rounded-circle d-inline-block small" style="width: 12px; height: 12px; background-color: @(sub.ColorCode ?? parent.ColorCode ?? "#6c757d");"></span>
+                                    <span>@((MarkupString)sub.Name)</span>
+                                    <button type="button" class="btn btn-link btn-xs text-primary p-0 ms-1" title="Edit" @onclick="() => OpenEditModal(sub, parent.Name)">✎</button>
+                                    <button type="button" class="btn btn-link btn-xs text-danger p-0 ms-1" title="Delete" @onclick="() => ConfirmDelete(sub.Id, sub.Name)">✕</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<CategoryDialog @ref="_categoryDialog" OnSave="HandleCategorySaved" />
+
+@if (_categoryToDeleteId.HasValue)
+{
+    <div class="modal fade show d-block confirm-dialog" tabindex="-1" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CancelDelete"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete category <strong>@_categoryToDeleteName</strong>?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="ExecuteDeleteAsync">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
+    private string? _userId;
+    private List<CategoryDto> _categories = [];
+    private bool _isLoading;
+    private string? _errorMessage;
+
+    private CategoryDialog? _categoryDialog;
+
+    private Guid? _categoryToDeleteId;
+    private string? _categoryToDeleteName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthStateTask != null)
+        {
+            var authState = await AuthStateTask;
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                _userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? user.FindFirst("sub")?.Value;
+
+                if (!string.IsNullOrEmpty(_userId))
+                {
+                    await LoadCategoriesAsync();
+                }
+            }
+        }
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        if (string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            var result = await CategoryService.GetCategoriesAsync(_userId);
+            if (result.IsSuccess)
+            {
+                _categories = result.Value != null ? result.Value.ToList() : [];
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage;
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void OpenAddParentModal()
+    {
+        _categoryDialog?.OpenForCreate(null, null, "#3B82F6", _categories.Count + 1);
+    }
+
+    private void OpenAddSubcategoryModal(CategoryDto parent)
+    {
+        _categoryDialog?.OpenForCreate(parent.Id, parent.Name, parent.ColorCode, (parent.Subcategories?.Count ?? 0) + 1);
+    }
+
+    private void OpenEditModal(CategoryDto category, string? parentCategoryName = null)
+    {
+        _categoryDialog?.OpenForEdit(category, parentCategoryName);
+    }
+
+    private async Task HandleCategorySaved(CategoryFormModel model)
+    {
+        if (string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        Result<CategoryDto> result;
+        if (model.Id.HasValue)
+        {
+            result = await CategoryService.UpdateCategoryAsync(_userId, model.Id.Value, model.ToUpdateRequest());
+        }
+        else
+        {
+            result = await CategoryService.CreateCategoryAsync(_userId, model.ToCreateRequest());
+        }
+
+        if (result.IsSuccess)
+        {
+            _categoryDialog?.Close();
+            _errorMessage = null;
+            if (result.Value != null)
+            {
+                UpsertLocalCategory(result.Value);
+            }
+            await LoadCategoriesAsync();
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage;
+        }
+    }
+
+    private void UpsertLocalCategory(CategoryDto dto)
+    {
+        if (!dto.ParentCategoryId.HasValue)
+        {
+            var existingIndex = _categories.FindIndex(c => c.Id == dto.Id);
+            if (existingIndex >= 0)
+            {
+                var existing = _categories[existingIndex];
+                _categories[existingIndex] = dto with { Subcategories = existing.Subcategories };
+            }
+            else
+            {
+                _categories.Add(dto);
+            }
+        }
+        else
+        {
+            var parentIndex = _categories.FindIndex(c => c.Id == dto.ParentCategoryId.Value);
+            if (parentIndex >= 0)
+            {
+                var parent = _categories[parentIndex];
+                var subs = (parent.Subcategories ?? []).ToList();
+                var subIndex = subs.FindIndex(s => s.Id == dto.Id);
+                if (subIndex >= 0)
+                {
+                    subs[subIndex] = dto;
+                }
+                else
+                {
+                    subs.Add(dto);
+                }
+                _categories[parentIndex] = parent with { Subcategories = subs.OrderBy(s => s.DisplayOrder).ToList() };
+            }
+        }
+    }
+
+    private void ConfirmDelete(Guid categoryId, string categoryName)
+    {
+        _categoryToDeleteId = categoryId;
+        _categoryToDeleteName = categoryName;
+    }
+
+    private void CancelDelete()
+    {
+        _categoryToDeleteId = null;
+        _categoryToDeleteName = null;
+    }
+
+    private async Task ExecuteDeleteAsync()
+    {
+        if (string.IsNullOrEmpty(_userId) || !_categoryToDeleteId.HasValue)
+        {
+            return;
+        }
+
+        var categoryId = _categoryToDeleteId.Value;
+        _categoryToDeleteId = null;
+        _categoryToDeleteName = null;
+
+        var result = await CategoryService.DeleteCategoryAsync(_userId, categoryId);
+        if (!result.IsSuccess)
+        {
+            if (result.ErrorCode == "CATEGORY_IN_USE")
+            {
+                _errorMessage = "Cannot delete category because it is currently assigned to existing transactions. Please reassign those transactions before deleting.";
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage;
+            }
+        }
+        else
+        {
+            _errorMessage = null;
+            RemoveCategoryFromLocalState(categoryId);
+        }
+    }
+
+    private void RemoveCategoryFromLocalState(Guid categoryId)
+    {
+        _categories.RemoveAll(c => c.Id == categoryId);
+        for (int i = 0; i < _categories.Count; i++)
+        {
+            var parent = _categories[i];
+            if (parent.Subcategories != null && parent.Subcategories.Any(s => s.Id == categoryId))
+            {
+                var updatedSubcategories = parent.Subcategories.Where(s => s.Id != categoryId).ToList();
+                _categories[i] = parent with { Subcategories = updatedSubcategories };
+            }
+        }
+    }
+
+    private void DismissError()
+    {
+        _errorMessage = null;
+    }
+}

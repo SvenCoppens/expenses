@@ -1,0 +1,116 @@
+@using Expenses.Models.ViewModels
+@using Expenses.Models.DTOs
+
+@if (IsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Title</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="Close"></button>
+                </div>
+                <EditForm Model="@Model" OnValidSubmit="HandleValidSubmit">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <ValidationSummary class="text-danger small mb-3" />
+
+                        @if (Model.ParentCategoryId.HasValue)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Parent Category</label>
+                                <input type="text" class="form-control" value="@ParentCategoryName" disabled />
+                                <input type="hidden" value="@Model.ParentCategoryId" />
+                            </div>
+                        }
+
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryName">Name <span class="text-danger">*</span></label>
+                            <InputText id="categoryName" class="form-control" @bind-Value="Model.Name" placeholder="e.g. Groceries" />
+                            <ValidationMessage For="() => Model.Name" class="text-danger small" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryColor">Color</label>
+                            <div class="input-group">
+                                <input type="color" class="form-control form-control-color" id="categoryColorPicker" @bind="Model.ColorCode" title="Choose color" />
+                                <InputText id="categoryColor" class="form-control" @bind-Value="Model.ColorCode" placeholder="#3B82F6" />
+                            </div>
+                            <ValidationMessage For="() => Model.ColorCode" class="text-danger small" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryIcon">Icon</label>
+                            <InputText id="categoryIcon" class="form-control" @bind-Value="Model.Icon" placeholder="e.g. bi-basket" />
+                            <ValidationMessage For="() => Model.Icon" class="text-danger small" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryDisplayOrder">Display Order</label>
+                            <InputNumber id="categoryDisplayOrder" class="form-control" @bind-Value="Model.DisplayOrder" />
+                            <ValidationMessage For="() => Model.DisplayOrder" class="text-danger small" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="Close">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public EventCallback<CategoryFormModel> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public bool IsOpen { get; private set; }
+    public CategoryFormModel Model { get; private set; } = new();
+    public string Title { get; private set; } = "Add Category";
+    public string? ParentCategoryName { get; private set; }
+
+    public void OpenForCreate(Guid? parentCategoryId = null, string? parentCategoryName = null, string? defaultColor = null, int displayOrder = 1)
+    {
+        Model = new CategoryFormModel
+        {
+            ParentCategoryId = parentCategoryId,
+            ColorCode = defaultColor ?? "#3B82F6",
+            DisplayOrder = displayOrder
+        };
+        ParentCategoryName = parentCategoryName;
+        Title = parentCategoryId.HasValue ? "Add Subcategory" : "Add Parent Category";
+        IsOpen = true;
+        StateHasChanged();
+    }
+
+    public void OpenForEdit(CategoryDto category, string? parentCategoryName = null)
+    {
+        Model = CategoryFormModel.FromDto(category);
+        ParentCategoryName = parentCategoryName;
+        Title = category.ParentCategoryId.HasValue ? "Edit Subcategory" : "Edit Category";
+        IsOpen = true;
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        IsOpen = false;
+        StateHasChanged();
+        if (OnCancel.HasDelegate)
+        {
+            OnCancel.InvokeAsync();
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (OnSave.HasDelegate)
+        {
+            await OnSave.InvokeAsync(Model);
+        }
+    }
+}

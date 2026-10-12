@@ -1,0 +1,241 @@
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Expenses.Common
+@using Expenses.Models.DTOs
+@using Expenses.Models.Enums
+@using Expenses.Models.ViewModels
+@using Expenses.Services.Transactions
+
+@inject ITransactionService TransactionService
+
+@if (IsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Title</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="Close"></button>
+                </div>
+                <EditForm Model="@Model" OnValidSubmit="HandleValidSubmit">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        @if (!string.IsNullOrEmpty(_errorMessage))
+                        {
+                            <div class="alert alert-danger py-2 mb-3" role="alert">
+                                @_errorMessage
+                            </div>
+                        }
+
+                        <ValidationSummary class="text-danger small mb-3" />
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="add-date">Date <span class="text-danger">*</span></label>
+                                <InputDate id="add-date" class="form-control" @bind-Value="Model.Date" />
+                                <ValidationMessage For="() => Model.Date" class="text-danger small" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label" for="add-amount">Amount <span class="text-danger">*</span></label>
+                                <InputNumber id="add-amount" class="form-control" @bind-Value="Model.Amount" step="0.01" />
+                                <ValidationMessage For="() => Model.Amount" class="text-danger small" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label" for="add-description">Description <span class="text-danger">*</span></label>
+                                <InputText id="add-description" class="form-control" @bind-Value="Model.Description" placeholder="Description or payee" />
+                                <ValidationMessage For="() => Model.Description" class="text-danger small" />
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label" for="add-type">Type <span class="text-danger">*</span></label>
+                                <InputSelect id="add-type" class="form-select" @bind-Value="Model.Type">
+                                    <option value="@TransactionType.Expense">Expense</option>
+                                    <option value="@TransactionType.Income">Income</option>
+                                    <option value="@TransactionType.Transfer">Transfer</option>
+                                </InputSelect>
+                                <ValidationMessage For="() => Model.Type" class="text-danger small" />
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label" for="add-category">Category</label>
+                                <InputSelect id="add-category" class="form-select" @bind-Value="Model.CategoryId" @bind-Value:after="OnCategoryChanged">
+                                    <option value="">-- None --</option>
+                                    @foreach (var cat in Categories)
+                                    {
+                                        <option value="@cat.Id">@cat.Name</option>
+                                    }
+                                </InputSelect>
+                                <ValidationMessage For="() => Model.CategoryId" class="text-danger small" />
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label" for="add-subcategory">Subcategory</label>
+                                <InputSelect id="add-subcategory" class="form-select" @bind-Value="Model.SubcategoryId" disabled="@(!AvailableSubcategories.Any())">
+                                    <option value="">-- None --</option>
+                                    @foreach (var sub in AvailableSubcategories)
+                                    {
+                                        <option value="@sub.Id">@sub.Name</option>
+                                    }
+                                </InputSelect>
+                                <ValidationMessage For="() => Model.SubcategoryId" class="text-danger small" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label" for="add-notes">Notes</label>
+                                <InputTextArea id="add-notes" class="form-control" @bind-Value="Model.Notes" placeholder="Optional notes..." rows="3" />
+                                <ValidationMessage For="() => Model.Notes" class="text-danger small" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="Close">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@_isSubmitting">
+                            @if (_isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>Save</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<CategoryDto> Categories { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<TransactionDto> OnTransactionCreated { get; set; }
+
+    [Parameter]
+    public EventCallback<TransactionFormModel> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public bool IsOpen { get; private set; }
+    public TransactionFormModel Model { get; private set; } = new();
+    public string Title { get; set; } = "Add Transaction";
+
+    private bool _isSubmitting;
+    private string? _errorMessage;
+
+    private IEnumerable<CategoryDto> AvailableSubcategories
+    {
+        get
+        {
+            if (!Model.CategoryId.HasValue)
+            {
+                return [];
+            }
+
+            var parent = Categories.FirstOrDefault(c => c.Id == Model.CategoryId.Value);
+            return parent?.Subcategories ?? [];
+        }
+    }
+
+    public void Open()
+    {
+        Model = new TransactionFormModel();
+        _errorMessage = null;
+        _isSubmitting = false;
+        IsOpen = true;
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        IsOpen = false;
+        _errorMessage = null;
+        _isSubmitting = false;
+        StateHasChanged();
+        if (OnCancel.HasDelegate)
+        {
+            OnCancel.InvokeAsync();
+        }
+    }
+
+    private void OnCategoryChanged()
+    {
+        if (!Model.CategoryId.HasValue)
+        {
+            Model.SubcategoryId = null;
+        }
+        else
+        {
+            var valid = AvailableSubcategories;
+            if (Model.SubcategoryId.HasValue && !valid.Any(s => s.Id == Model.SubcategoryId.Value))
+            {
+                Model.SubcategoryId = null;
+            }
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        _errorMessage = null;
+
+        if (OnSave.HasDelegate)
+        {
+            await OnSave.InvokeAsync(Model);
+            Close();
+            return;
+        }
+
+        string? userId = null;
+        if (AuthStateTask != null)
+        {
+            var authState = await AuthStateTask;
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? user.FindFirst("sub")?.Value;
+            }
+        }
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            _errorMessage = "User is not authenticated.";
+            return;
+        }
+
+        _isSubmitting = true;
+        try
+        {
+            var request = Model.ToRequest();
+            var result = await TransactionService.CreateTransactionAsync(userId, request);
+            if (result.IsSuccess && result.Value != null)
+            {
+                var created = result.Value;
+                IsOpen = false;
+                StateHasChanged();
+                if (OnTransactionCreated.HasDelegate)
+                {
+                    await OnTransactionCreated.InvokeAsync(created);
+                }
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Failed to create transaction.";
+            }
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

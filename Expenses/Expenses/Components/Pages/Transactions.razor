@@ -1,0 +1,697 @@
+@page "/transactions"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@using System.ComponentModel.DataAnnotations
+@using System.Globalization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Expenses.Common
+@using Expenses.Components.Shared
+@using Expenses.Models.DTOs
+@using Expenses.Models.Enums
+@using Expenses.Models.ViewModels
+@using Expenses.Services.Categories
+@using Expenses.Services.Transactions
+
+@inject ITransactionService TransactionService
+@inject ICategoryService CategoryService
+
+<PageTitle>Transactions - Expenses</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Transactions</h2>
+</div>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <span>@_errorMessage</span>
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => _errorMessage = null"></button>
+    </div>
+}
+
+<!-- Filter Toolbar -->
+<div class="card mb-3 p-3 bg-light shadow-sm">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+            <label class="form-label small" for="date-preset-select">Date Preset</label>
+            <select id="date-preset-select" class="form-select form-select-sm" @bind="_filterVm.DatePreset" @bind:after="OnPresetChangedAsync">
+                <option value="@TransactionFilterViewModel.PresetThisMonth">This Month</option>
+                <option value="@TransactionFilterViewModel.PresetLastMonth">Last Month</option>
+                <option value="@TransactionFilterViewModel.PresetYearToDate">Year to Date</option>
+                <option value="@TransactionFilterViewModel.PresetAllTime">All Time</option>
+                <option value="@TransactionFilterViewModel.PresetCustom">Custom</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small" for="start-date-input">From</label>
+            <input type="date" id="start-date-input" class="form-control form-control-sm" @bind="_filterVm.StartDate" @bind:after="OnDateInputChangedAsync" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small" for="end-date-input">To</label>
+            <input type="date" id="end-date-input" class="form-control form-control-sm" @bind="_filterVm.EndDate" @bind:after="OnDateInputChangedAsync" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small" for="type-select">Type</label>
+            <select id="type-select" class="form-select form-select-sm" @bind="_filterVm.Type" @bind:after="LoadTransactionsAsync">
+                <option value="">All Types</option>
+                <option value="@TransactionType.Expense">Expense</option>
+                <option value="@TransactionType.Income">Income</option>
+                <option value="@TransactionType.Transfer">Transfer</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small" for="category-select">Category</label>
+            <select id="category-select" class="form-select form-select-sm" @bind="_filterVm.SelectedCategoryId" @bind:after="LoadTransactionsAsync">
+                <option value="">All Categories</option>
+                @foreach (var parent in _categories)
+                {
+                    <option value="@parent.Id">@parent.Name</option>
+                    @if (parent.Subcategories != null)
+                    {
+                        @foreach (var sub in parent.Subcategories)
+                        {
+                            <option value="@sub.Id">&nbsp;&nbsp;-- @sub.Name</option>
+                        }
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small" for="search-input">Search</label>
+            <input type="text" id="search-input" name="search" class="form-control form-control-sm" placeholder="Search payee/description..." @bind="_filterVm.SearchTerm" @bind:after="LoadTransactionsAsync" />
+        </div>
+        <div class="col-md-12 text-end mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="ResetFiltersAsync">Reset</button>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Metrics Bar -->
+<div class="row g-3 mb-4 text-center">
+    <div class="col-6 col-md-3">
+        <div class="card p-3 shadow-sm border-secondary">
+            <div class="small text-muted mb-1">Count</div>
+            <div class="h5 mb-0">@_transactions.Count transactions</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 shadow-sm border-success text-success">
+            <div class="small mb-1">Total Income</div>
+            <div class="h5 mb-0">+€@_totalIncome.ToString("N2", CultureInfo.InvariantCulture)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 shadow-sm border-danger text-danger">
+            <div class="small mb-1">Total Expenses</div>
+            <div class="h5 mb-0">-€@_totalExpenses.ToString("N2", CultureInfo.InvariantCulture)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 shadow-sm border-primary @(_netBalance >= 0 ? "text-primary" : "text-danger")">
+            <div class="small mb-1">Net Balance</div>
+            <div class="h5 mb-0">@FormatNetBalance(_netBalance)</div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Action & Toolbar -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-primary" @onclick="OpenAddTransactionModal">
+            <span class="bi bi-plus-lg"></span> + Add Transaction
+        </button>
+        @if (_selectedIds.Count > 0)
+        {
+            <button type="button" class="btn btn-danger" @onclick="ConfirmBulkDelete">
+                <span class="bi bi-trash"></span> Delete Selected (@_selectedIds.Count)
+            </button>
+        }
+    </div>
+    <div class="text-muted small">
+        Showing @_transactions.Count transactions
+    </div>
+</div>
+
+<!-- Transactions Table / Loading / Empty State -->
+@if (_isLoading)
+{
+    <div class="d-flex justify-content-center my-4">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading transactions...</span>
+        </div>
+    </div>
+}
+else if (_transactions.Count == 0)
+{
+    <div class="alert alert-info" role="status">
+        No transactions found matching the selected filters.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" checked="@(_transactions.Count > 0 && _selectedIds.Count == _transactions.Count)" @onchange="ToggleSelectAll" />
+                    </th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Category</th>
+                    <th>Subcategory</th>
+                    <th>Type</th>
+                    <th class="text-end">Amount</th>
+                    <th>Notes</th>
+                    <th style="width: 140px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var transaction in _transactions)
+                {
+                    @if (_editingId == transaction.Id && _editRow != null)
+                    {
+                        <tr @key="transaction.Id" class="table-warning">
+                            <td></td>
+                            <td>
+                                <input type="date" class="form-control form-control-sm" value="@_editRow.Date.ToString("yyyy-MM-dd")" @onchange="OnEditDateChanged" />
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" value="@_editRow.Description" @onchange="OnEditDescriptionChanged" />
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" value="@(_editRow.CategoryId?.ToString() ?? "")" @onchange="OnEditCategorySelectChanged">
+                                    <option value="">-- None --</option>
+                                    @foreach (var c in _categories)
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" value="@(_editRow.SubcategoryId?.ToString() ?? "")" @onchange="OnEditSubcategorySelectChanged">
+                                    <option value="">-- None --</option>
+                                    @foreach (var sc in GetSubcategoriesFor(_editRow.CategoryId))
+                                    {
+                                        <option value="@sc.Id">@sc.Name</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" value="@_editRow.Type" @onchange="OnEditTypeSelectChanged">
+                                    <option value="@TransactionType.Expense">Expense</option>
+                                    <option value="@TransactionType.Income">Income</option>
+                                    <option value="@TransactionType.Transfer">Transfer</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="number" step="0.01" class="form-control form-control-sm text-end" value="@_editRow.Amount.ToString(CultureInfo.InvariantCulture)" @onchange="OnEditAmountChanged" />
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" placeholder="Notes" value="@_editRow.Notes" @onchange="OnEditNotesChanged" />
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <button type="button" class="btn btn-sm btn-success" title="Save" @onclick="SaveRowEditAsync">Save</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" title="Cancel" @onclick="CancelRowEdit">Cancel</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        <tr @key="transaction.Id">
+                            <td>
+                                <input type="checkbox" class="form-check-input" checked="@_selectedIds.Contains(transaction.Id)" @onchange="e => ToggleSelection(transaction.Id, e)" />
+                            </td>
+                            <td>@transaction.Date.ToString("yyyy-MM-dd")</td>
+                            <td>@transaction.Description</td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(transaction.CategoryName))
+                                {
+                                    <span class="badge text-white" style="background-color: @GetCategoryColor(transaction.CategoryId);">@transaction.CategoryName</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(transaction.SubcategoryName))
+                                {
+                                    <span class="badge bg-light text-dark border">@transaction.SubcategoryName</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @GetTypeBadgeClass(transaction.Type)">@transaction.Type</span>
+                            </td>
+                            <td class="@GetAmountClass(transaction.Type) text-end font-monospace">
+                                @FormatCurrency(transaction.Amount, transaction.Type)
+                            </td>
+                            <td>@transaction.Notes</td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" title="Edit" @onclick="() => StartRowEdit(transaction)">Edit</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete" @onclick="() => DeleteSingleTransactionAsync(transaction.Id)">Delete</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<AddTransactionModal @ref="_addModal" Categories="_categories" OnTransactionCreated="HandleTransactionCreatedAsync" />
+<ConfirmDialog @ref="_confirmBulkDialog" OnConfirmed="HandleBulkDeleteConfirmedAsync" />
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private string? _userId;
+    private List<CategoryDto> _categories = [];
+    private List<TransactionDto> _transactions = [];
+    private HashSet<Guid> _selectedIds = [];
+    private TransactionFilterViewModel _filterVm = new();
+    private bool _isLoading;
+    private string? _errorMessage;
+
+    private Guid? _editingId;
+    private TransactionRowEditModel? _editRow;
+
+    private AddTransactionModal? _addModal;
+    private ConfirmDialog? _confirmBulkDialog;
+
+    private decimal _totalIncome;
+    private decimal _totalExpenses;
+    private decimal _netBalance;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthStateTask != null)
+        {
+            var authState = await AuthStateTask;
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                _userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? user.FindFirst("sub")?.Value;
+
+                if (!string.IsNullOrEmpty(_userId))
+                {
+                    await LoadCategoriesAsync();
+                    await LoadTransactionsAsync();
+                }
+            }
+        }
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        if (string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        var result = await CategoryService.GetCategoriesAsync(_userId);
+        if (result.IsSuccess && result.Value != null)
+        {
+            _categories = result.Value.ToList();
+        }
+        else if (!result.IsSuccess)
+        {
+            _errorMessage = result.ErrorMessage;
+        }
+    }
+
+    private async Task LoadTransactionsAsync()
+    {
+        if (string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            var filter = _filterVm.ToFilter();
+            var result = await TransactionService.GetTransactionsAsync(_userId, filter);
+            if (result.IsSuccess && result.Value != null)
+            {
+                _transactions = result.Value.ToList();
+                _selectedIds.IntersectWith(_transactions.Select(t => t.Id));
+                if (_editingId.HasValue && !_transactions.Any(t => t.Id == _editingId.Value))
+                {
+                    _editingId = null;
+                    _editRow = null;
+                }
+                CalculateMetrics();
+            }
+            else
+            {
+                _transactions = [];
+                _selectedIds.Clear();
+                _editingId = null;
+                _editRow = null;
+                CalculateMetrics();
+                if (!result.IsSuccess)
+                {
+                    _errorMessage = result.ErrorMessage;
+                }
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnPresetChangedAsync()
+    {
+        _filterVm.ApplyPreset(_filterVm.DatePreset);
+        await LoadTransactionsAsync();
+    }
+
+    private async Task OnDateInputChangedAsync()
+    {
+        _filterVm.DatePreset = TransactionFilterViewModel.PresetCustom;
+        await LoadTransactionsAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _filterVm.Reset();
+        await LoadTransactionsAsync();
+    }
+
+    private void CalculateMetrics()
+    {
+        _totalIncome = _transactions
+            .Where(t => t.Type == TransactionType.Income)
+            .Sum(t => t.Amount);
+
+        _totalExpenses = _transactions
+            .Where(t => t.Type == TransactionType.Expense)
+            .Sum(t => t.Amount);
+
+        _netBalance = _totalIncome - _totalExpenses;
+    }
+
+    private static string FormatNetBalance(decimal netBalance)
+    {
+        if (netBalance < 0)
+        {
+            return $"-€{Math.Abs(netBalance).ToString("N2", CultureInfo.InvariantCulture)}";
+        }
+        return $"€{netBalance.ToString("N2", CultureInfo.InvariantCulture)}";
+    }
+
+    private void StartRowEdit(TransactionDto tx)
+    {
+        _editingId = tx.Id;
+        _editRow = TransactionRowEditModel.FromDto(tx);
+        _errorMessage = null;
+    }
+
+    private void CancelRowEdit()
+    {
+        _editingId = null;
+        _editRow = null;
+        _errorMessage = null;
+    }
+
+    private async Task SaveRowEditAsync()
+    {
+        if (_editRow == null || !_editingId.HasValue || string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        var validationResults = new List<ValidationResult>();
+        var validationContext = new ValidationContext(_editRow, serviceProvider: null, items: null);
+        if (!Validator.TryValidateObject(_editRow, validationContext, validationResults, validateAllProperties: true))
+        {
+            _errorMessage = validationResults.FirstOrDefault()?.ErrorMessage ?? "Validation failed.";
+            return;
+        }
+
+        var request = _editRow.ToRequest();
+        var result = await TransactionService.UpdateTransactionAsync(_userId, _editingId.Value, request);
+        if (result.IsSuccess && result.Value != null)
+        {
+            var updated = result.Value;
+            var index = _transactions.FindIndex(t => t.Id == _editingId.Value);
+            if (index >= 0)
+            {
+                _transactions[index] = updated;
+            }
+            _editingId = null;
+            _editRow = null;
+            _errorMessage = null;
+            CalculateMetrics();
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Failed to save transaction.";
+        }
+    }
+
+    private async Task DeleteSingleTransactionAsync(Guid id)
+    {
+        if (string.IsNullOrEmpty(_userId))
+        {
+            return;
+        }
+
+        var result = await TransactionService.DeleteTransactionAsync(_userId, id);
+        if (result.IsSuccess)
+        {
+            _transactions.RemoveAll(t => t.Id == id);
+            _selectedIds.Remove(id);
+            if (_editingId == id)
+            {
+                _editingId = null;
+                _editRow = null;
+            }
+            _errorMessage = null;
+            CalculateMetrics();
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Failed to delete transaction.";
+        }
+    }
+
+    private void OpenAddTransactionModal()
+    {
+        _addModal?.Open();
+    }
+
+    private async Task HandleTransactionCreatedAsync(TransactionDto created)
+    {
+        await LoadTransactionsAsync();
+    }
+
+    private void ConfirmBulkDelete()
+    {
+        if (_selectedIds.Count == 0)
+        {
+            return;
+        }
+
+        _confirmBulkDialog?.Show(
+            "Confirm Delete",
+            $"Are you sure you want to delete {_selectedIds.Count} selected transaction{(_selectedIds.Count == 1 ? "" : "s")}?",
+            "Delete"
+        );
+    }
+
+    private async Task HandleBulkDeleteConfirmedAsync()
+    {
+        if (string.IsNullOrEmpty(_userId) || _selectedIds.Count == 0)
+        {
+            return;
+        }
+
+        var idsToDelete = _selectedIds.ToList();
+        var result = await TransactionService.DeleteTransactionsBulkAsync(_userId, idsToDelete);
+        if (result.IsSuccess)
+        {
+            _transactions.RemoveAll(t => _selectedIds.Contains(t.Id));
+            _selectedIds.Clear();
+            if (_editingId.HasValue && idsToDelete.Contains(_editingId.Value))
+            {
+                _editingId = null;
+                _editRow = null;
+            }
+            _errorMessage = null;
+            CalculateMetrics();
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Bulk deletion failed.";
+        }
+    }
+
+    private void ToggleSelection(Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is bool isChecked && isChecked)
+        {
+            _selectedIds.Add(id);
+        }
+        else
+        {
+            _selectedIds.Remove(id);
+        }
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if (e.Value is bool isChecked && isChecked)
+        {
+            _selectedIds = _transactions.Select(t => t.Id).ToHashSet();
+        }
+        else
+        {
+            _selectedIds.Clear();
+        }
+    }
+
+    private void OnEditDateChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null && DateOnly.TryParse(e.Value?.ToString(), out var date))
+        {
+            _editRow.Date = date;
+        }
+    }
+
+    private void OnEditDescriptionChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null)
+        {
+            _editRow.Description = e.Value?.ToString() ?? string.Empty;
+        }
+    }
+
+    private void OnEditCategorySelectChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null)
+        {
+            var str = e.Value?.ToString();
+            _editRow.CategoryId = Guid.TryParse(str, out var catId) ? catId : null;
+            OnEditCategoryChanged();
+        }
+    }
+
+    private void OnEditSubcategorySelectChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null)
+        {
+            var str = e.Value?.ToString();
+            _editRow.SubcategoryId = Guid.TryParse(str, out var subId) ? subId : null;
+        }
+    }
+
+    private void OnEditTypeSelectChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null && Enum.TryParse<TransactionType>(e.Value?.ToString(), out var type))
+        {
+            _editRow.Type = type;
+        }
+    }
+
+    private void OnEditAmountChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null && decimal.TryParse(e.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+        {
+            _editRow.Amount = amount;
+        }
+    }
+
+    private void OnEditNotesChanged(ChangeEventArgs e)
+    {
+        if (_editRow != null)
+        {
+            _editRow.Notes = e.Value?.ToString();
+        }
+    }
+
+    private void OnEditCategoryChanged()
+    {
+        if (_editRow != null)
+        {
+            if (!_editRow.CategoryId.HasValue)
+            {
+                _editRow.SubcategoryId = null;
+            }
+            else
+            {
+                var validSubcategories = GetSubcategoriesFor(_editRow.CategoryId);
+                if (_editRow.SubcategoryId.HasValue && !validSubcategories.Any(s => s.Id == _editRow.SubcategoryId.Value))
+                {
+                    _editRow.SubcategoryId = null;
+                }
+            }
+        }
+    }
+
+    private IEnumerable<CategoryDto> GetSubcategoriesFor(Guid? parentCategoryId)
+    {
+        if (!parentCategoryId.HasValue)
+        {
+            return [];
+        }
+
+        var parent = _categories.FirstOrDefault(c => c.Id == parentCategoryId.Value);
+        return parent?.Subcategories ?? [];
+    }
+
+    private string GetCategoryColor(Guid? categoryId)
+    {
+        if (!categoryId.HasValue)
+        {
+            return "#6c757d";
+        }
+
+        var category = _categories.FirstOrDefault(c => c.Id == categoryId.Value);
+        if (category != null && !string.IsNullOrWhiteSpace(category.ColorCode))
+        {
+            return category.ColorCode;
+        }
+
+        var subcategory = _categories
+            .SelectMany(c => c.Subcategories ?? (IReadOnlyList<CategoryDto>)[])
+            .FirstOrDefault(s => s.Id == categoryId.Value);
+
+        if (subcategory != null && !string.IsNullOrWhiteSpace(subcategory.ColorCode))
+        {
+            return subcategory.ColorCode;
+        }
+
+        return "#6c757d";
+    }
+
+    private static string GetTypeBadgeClass(TransactionType type) => type switch
+    {
+        TransactionType.Expense => "bg-danger-subtle text-danger border border-danger-subtle",
+        TransactionType.Income => "bg-success-subtle text-success border border-success-subtle",
+        TransactionType.Transfer => "bg-info-subtle text-info border border-info-subtle",
+        _ => "bg-secondary text-white"
+    };
+
+    private static string GetAmountClass(TransactionType type) => type switch
+    {
+        TransactionType.Expense => "text-danger",
+        TransactionType.Income => "text-success",
+        _ => ""
+    };
+
+    private static string FormatCurrency(decimal amount, TransactionType type) => type switch
+    {
+        TransactionType.Expense => $"-€{amount.ToString("N2", CultureInfo.InvariantCulture)}",
+        TransactionType.Income => $"+€{amount.ToString("N2", CultureInfo.InvariantCulture)}",
+        _ => $"€{amount.ToString("N2", CultureInfo.InvariantCulture)}"
+    };
+}
+

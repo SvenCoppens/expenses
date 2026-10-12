@@ -1,0 +1,97 @@
+@if (IsOpen)
+{
+    <div class="modal fade show d-block confirm-dialog" tabindex="-1" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Title</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="HandleCancel"></button>
+                </div>
+                <div class="modal-body">
+                    <p>@Message</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel">@CancelText</button>
+                    <button type="button" class="@ConfirmButtonClass" @onclick="HandleConfirm">@ConfirmText</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool? IsVisible { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Confirm Delete";
+
+    [Parameter]
+    public string Message { get; set; } = "Are you sure you want to proceed?";
+
+    [Parameter]
+    public string ConfirmText { get; set; } = "Delete";
+
+    [Parameter]
+    public string CancelText { get; set; } = "Cancel";
+
+    [Parameter]
+    public string ConfirmButtonClass { get; set; } = "btn btn-danger";
+
+    [Parameter]
+    public EventCallback OnConfirmed { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private bool _internalIsOpen;
+
+    public bool IsOpen => IsVisible ?? _internalIsOpen;
+
+    public void Show(string? title = null, string? message = null, string? confirmText = null)
+    {
+        if (!string.IsNullOrEmpty(title))
+        {
+            Title = title;
+        }
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            Message = message;
+        }
+
+        if (!string.IsNullOrEmpty(confirmText))
+        {
+            ConfirmText = confirmText;
+        }
+
+        _internalIsOpen = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _internalIsOpen = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleConfirm()
+    {
+        _internalIsOpen = false;
+        StateHasChanged();
+        if (OnConfirmed.HasDelegate)
+        {
+            await OnConfirmed.InvokeAsync();
+        }
+    }
+
+    private async Task HandleCancel()
+    {
+        _internalIsOpen = false;
+        StateHasChanged();
+        if (OnCancel.HasDelegate)
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+}
