@@ -32,7 +32,16 @@ builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
-        options.SignIn.RequireConfirmedAccount = true;
+        options.SignIn.RequireConfirmedAccount = false; // Set to false to allow login without email confirmation
+
+        // --- Password Requirements ---
+        options.Password.RequireDigit = false;          // Default: true
+        options.Password.RequireLowercase = false;      // Default: true
+        options.Password.RequireUppercase = false;      // Default: true
+        options.Password.RequireNonAlphanumeric = false; // Default: true
+        options.Password.RequiredLength = 6;            // Default: 6
+        options.Password.RequiredUniqueChars = 0;       // Default: 1
+
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
